@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "id": "io.github.rnadyrshin.kickstarter",
+  "name": "KS Tracker",
+  "version": "1.0.0",
+  "api_version": "27.15.0",
+  "description": "Live Kickstarter funding progress",
+  "author": "Ruslan Nadyrshin"
+}

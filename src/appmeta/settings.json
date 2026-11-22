@@ -1,0 +1,145 @@
+{
+  "format_version": 1,
+  "version": 1,
+  "fields": {
+    "project": {
+      "type": "string",
+      "label": "Project",
+      "description": "Link to the Kickstarter project, e.g. https://www.kickstarter.com/projects/flipper-devices/flipper-one, or just its creator/slug part.",
+      "default": "https://www.kickstarter.com/projects/flipper-devices/flipper-one",
+      "max_length": 200
+    },
+    "currency": {
+      "type": "enum",
+      "label": "Currency",
+      "description": "Currency the amounts are shown in. Converted at the daily rate from open.er-api.com; \"Project currency\" shows them as the project reports them.",
+      "default": "USD",
+      "options": [
+        {
+          "value": "PROJECT",
+          "label": "Project currency"
+        },
+        {
+          "value": "USD",
+          "label": "USD, US dollar"
+        },
+        {
+          "value": "EUR",
+          "label": "EUR, Euro"
+        },
+        {
+          "value": "GBP",
+          "label": "GBP, British pound"
+        },
+        {
+          "value": "JPY",
+          "label": "JPY, Japanese yen"
+        },
+        {
+          "value": "CNY",
+          "label": "CNY, Chinese yuan"
+        },
+        {
+          "value": "CAD",
+          "label": "CAD, Canadian dollar"
+        },
+        {
+          "value": "AUD",
+          "label": "AUD, Australian dollar"
+        },
+        {
+          "value": "NZD",
+          "label": "NZD, New Zealand dollar"
+        },
+        {
+          "value": "CHF",
+          "label": "CHF, Swiss franc"
+        },
+        {
+          "value": "SEK",
+          "label": "SEK, Swedish krona"
+        },
+        {
+          "value": "NOK",
+          "label": "NOK, Norwegian krone"
+        },
+        {
+          "value": "DKK",
+          "label": "DKK, Danish krone"
+        },
+        {
+          "value": "PLN",
+          "label": "PLN, Polish zloty"
+        },
+        {
+          "value": "CZK",
+          "label": "CZK, Czech koruna"
+        },
+        {
+          "value": "HKD",
+          "label": "HKD, Hong Kong dollar"
+        },
+        {
+          "value": "SGD",
+          "label": "SGD, Singapore dollar"
+        },
+        {
+          "value": "KRW",
+          "label": "KRW, South Korean won"
+        },
+        {
+          "value": "INR",
+          "label": "INR, Indian rupee"
+        },
+        {
+          "value": "MXN",
+          "label": "MXN, Mexican peso"
+        },
+        {
+          "value": "BRL",
+          "label": "BRL, Brazilian real"
+        },
+        {
+          "value": "TRY",
+          "label": "TRY, Turkish lira"
+        },
+        {
+          "value": "AED",
+          "label": "AED, UAE dirham"
+        },
+        {
+          "value": "RUB",
+          "label": "RUB, Russian ruble"
+        },
+        {
+          "value": "UAH",
+          "label": "UAH, Ukrainian hryvnia"
+        },
+        {
+          "value": "KZT",
+          "label": "KZT, Kazakhstani tenge"
+        }
+      ]
+    },
+    "show_backers": {
+      "type": "boolean",
+      "label": "Show backers",
+      "description": "Take turns, every few seconds, between the last minute's rise and the number of backers.",
+      "default": false
+    },
+    "show_percent": {
+      "type": "boolean",
+      "label": "Show percent funded",
+      "description": "Take turns, every few seconds, between the last minute's rise and the share of the goal raised (e.g. 326% funded).",
+      "default": false
+    },
+    "interval_s": {
+      "type": "integer",
+      "label": "Update period, s",
+      "description": "How often to check the project. Kickstarter refreshes the numbers it gives out at most every 5 seconds, so a shorter period would show nothing new.",
+      "default": 10,
+      "min": 5,
+      "max": 3600
+    }
+  }
+}
