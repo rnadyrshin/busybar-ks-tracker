@@ -33,23 +33,17 @@ const BOTTOM_Y = 9;
 /** A text wider than the screen scrolls, at this many pixels a minute. */
 const SCROLL_RATE = 1500;
 /** Intro: pages of the name slide up into each other this fast, then the amount counts up from zero this long. */
-const SLIDE_MS = 350;
-const COUNT_MS = 1200;
+const SLIDE_MS = 250;
+const COUNT_MS = 900;
 /** Pause between animation frames; each frame is one request to the bar's display, so the real rate is lower. */
 const FRAME_MS = 15;
-/** A new amount rolls in: the changed tail of the number slides out and the new one in, in ROLL_MS. When the number
- *  changes length or font, it counts across instead, in COUNT_STEP_MS. */
-const ROLL_MS = 350;
-const COUNT_STEP_MS = 700;
-/** How far a digit travels when it rolls: its 7 rows and the gap to the next. */
-const ROLL_TRAVEL = 9;
-/** Layers, bottom to top. While digits roll, a black mask under the bar hides them on their way out. */
+/** Layers, bottom to top. */
 const Z_AMOUNT = 2;
-const Z_MASK = 3;
 const Z_BAR = 4;
 const Z_TEXT = 7;
-/** The rise of the amount is counted over this sliding window, whatever the update period. */
-const DELTA_WINDOW_MS = 60000;
+/** The rise window is kept as at most this many samples, thinned out evenly: plenty for its accuracy, and an hour of
+ *  5-second polls (720 samples) would be a lot for the bar's JS heap. */
+const RISE_SAMPLES = 60;
 /** Rates change once a day; the free API asks clients to keep requests rare. */
 const RATE_TTL_MS = 6 * 3600 * 1000;
 /** First retries of the card come quickly, then back off to the update period. */
@@ -59,23 +53,19 @@ const RETRY_FIRST_MS = 5000;
  *  goal) this often. */
 const ALTERNATE_MS = 4000;
 
-/** The rolling tail of the amount: from character `i` on, the old text out, the new one in. */
-type Roll = { i: number; from: string; to: string; fromX: number; toX: number; delay: number };
-
-/** An animation of the amount, prepared when it starts so each frame has little to work out. */
+/** The intro's count-up of the amount, prepared when it starts so each frame has little to work out. `k` turns a
+ *  display amount back into the project's currency, for the bar and the colour. */
 type Plan = {
   start: number;
   end: number;
-  /** The first frame also sends `fixed`: the characters that stay put, and the mask. */
-  first: boolean;
-  fixed: string[];
-  rolls: Roll[];
   font: Font;
   y0: number;
-  color: string;
-  up: boolean;
-  /** A count across instead of a roll; `k` turns a display amount back into the project's currency. */
-  count: { from: number; to: number; prefix: string; full: boolean; right: number; goal: number; k: number } | null;
+  to: number;
+  prefix: string;
+  full: boolean;
+  right: number;
+  goal: number;
+  k: number;
 };
 
 /** A display element, as the firmware's draw API takes it. */
@@ -135,30 +125,31 @@ function main(): void {
   /** The intro: its pages, and when it started (0 while there is no card yet, -1 once it is over or skipped). */
   let pages: Page[] = [];
   let introStart = 0;
-  /** The amount as last drawn at rest, to see when it changes. */
-  let restText = "";
-  let restFont: Font = "bold";
-  let restValue = 0;
-  /** The animation of the amount under way, worked out once when it starts (see makeRoll and makeCount). */
+  /** The count-up under way, worked out once when it starts (see makeCount). */
   let plan: Plan | null = null;
   const animating = () => introStart > 0 || (plan !== null && Date.now() < plan.end);
-  /** Amounts read in the last DELTA_WINDOW_MS, oldest first, plus the last one before it as the base. */
+  /** Amounts read over the rise window, oldest first, plus the last one before it as the base. */
   const history: { t: number; pledged: number }[] = [];
 
   const remember = (t: number, pledged: number) => {
-    history.push({ t, pledged });
+    const window = settings.riseMs;
+    // Thinning: a sample closer than window / RISE_SAMPLES to the one before the last replaces the last, so the
+    // history stays about RISE_SAMPLES long and the base is never more than one step off the window's start.
+    const n = history.length;
+    if (n >= 2 && t - history[n - 2].t < window / RISE_SAMPLES) history[n - 1] = { t, pledged };
+    else history.push({ t, pledged });
     // Keep a single sample at or before the start of the window.
-    while (history.length > 2 && history[1].t <= t - DELTA_WINDOW_MS) history.shift();
+    while (history.length > 2 && history[1].t <= t - window) history.shift();
   };
 
-  /** How much the amount rose over the last minute, in the project's currency. Recomputed each second, so old
+  /** How much the amount rose over the rise window, in the project's currency. Recomputed each second, so old
    *  pledges drop out as the window slides. */
-  const lastMinute = (now: number): number => {
+  const lastRise = (now: number): number => {
     if (history.length === 0) return 0;
     const latest = history[history.length - 1];
     // The base: the last sample at or before the start of the window, else the oldest one there is.
     let base = history[0];
-    for (const h of history) if (h.t <= now - DELTA_WINDOW_MS) base = h;
+    for (const h of history) if (h.t <= now - settings.riseMs) base = h;
     return Math.max(0, latest.pledged - base.pledged);
   };
 
@@ -202,62 +193,23 @@ function main(): void {
     }
   };
 
-  /**
-   * A roll from `from` to `to` (same length, same font): everything from the first changed character on rolls as one
-   * piece, the old tail out and the new one in, two elements a frame however many digits changed; the head stays put.
-   */
-  const makeRoll = (from: string, to: string, font: Font, x: number, color: string, up: boolean, now: number): Plan => {
-    let i = 0;
-    while (i < to.length && from[i] === to[i]) i++;
-    const y0 = TOP_Y[font];
-    const fixed: string[] = [];
-    if (i > 0) fixed.push(textJson("r0", to.slice(0, i), font, x, y0, color, Z_AMOUNT));
-    fixed.push(rectJson("mask", 0, BAR_Y, W, 16 - BAR_Y, "#000000FF", Z_MASK));
-    const roll: Roll = { i, from: from.slice(i), to: to.slice(i), fromX: x + textWidth(from.slice(0, i), font), toX: x + textWidth(to.slice(0, i), font), delay: 0 };
-    return { start: now, end: now + ROLL_MS, first: true, fixed, rolls: [roll], font, y0, color, up, count: null };
+  /** The count-up from zero: the number runs, right-aligned to where it ends, and the bar follows. */
+  const makeCount = (c: Card, to: number, prefix: string, full: boolean, font: Font, right: number, now: number): Plan => {
+    const native = (stats ?? c.stats).pledged;
+    return { start: now, end: now + COUNT_MS, font, y0: TOP_Y[font], to, prefix, full, right, goal: c.goal, k: native > 0 ? to / native : 1 };
   };
 
-  /** A count across from one amount to another: the number runs, right-aligned to where it ends; the bar follows. */
-  const makeCount = (c: Card, from: number, to: number, prefix: string, full: boolean, font: Font, right: number, ms: number, now: number): Plan => {
-    // From the display currency back to the project's, for the bar and the colour.
-    const k = c.stats.pledged > 0 || (stats && stats.pledged > 0) ? to / ((stats ?? c.stats).pledged || 1) : 1;
-    return {
-      start: now,
-      end: now + ms,
-      first: true,
-      fixed: [],
-      rolls: [],
-      font,
-      y0: TOP_Y[font],
-      color: WHITE,
-      up: to >= from,
-      count: { from, to, prefix, full, right, goal: c.goal, k: k || 1 },
-    };
-  };
-
-  /** One frame of the plan: only what moves, as ready JSON. */
+  /** One frame of the count-up: only the amount and the bar, as ready JSON. */
   const planFrame = (p: Plan, now: number): [string, string][] => {
-    const t = now - p.start;
-    const out: [string, string][] = [];
-    if (p.first) for (const j of p.fixed) out.push([j.slice(7, j.indexOf('"', 7)), j]);
-    if (p.count) {
-      const q = p.count;
-      const v = q.from + (q.to - q.from) * ease(t / (p.end - p.start));
-      const txt = q.prefix + (q.full ? grouped(v) : compact(v, 3));
-      const native = v / q.k;
-      const color = q.goal > 0 && native >= q.goal ? KS_GREEN : WHITE;
-      out.push(["amount", textJson("amount", txt, p.font, q.right - textWidth(txt, p.font), p.y0, color, Z_AMOUNT)]);
-      const fill = q.goal > 0 ? Math.max(1, Math.floor(W * Math.min(1, native / q.goal))) : 1;
-      out.push(["fill", rectJson("fill", 0, BAR_Y, fill, BAR_H, KS_GREEN, Z_BAR + 1)]);
-      return out;
-    }
-    for (const r of p.rolls) {
-      const d = Math.round(ROLL_TRAVEL * ease((t - r.delay) / ROLL_MS));
-      // Growing: the old digit drops away and the new one comes down from above; shrinking: the other way round.
-      out.push([`o${r.i}`, textJson(`o${r.i}`, r.from, p.font, r.fromX, p.up ? p.y0 + d : p.y0 - d, p.color, Z_AMOUNT)]);
-      out.push([`n${r.i}`, textJson(`n${r.i}`, r.to, p.font, r.toX, p.up ? p.y0 - ROLL_TRAVEL + d : p.y0 + ROLL_TRAVEL - d, p.color, Z_AMOUNT)]);
-    }
-    return out;
+    const v = p.to * ease((now - p.start) / (p.end - p.start));
+    const txt = p.prefix + (p.full ? grouped(v) : compact(v, 3));
+    const native = v / p.k;
+    const color = p.goal > 0 && native >= p.goal ? KS_GREEN : WHITE;
+    const fill = p.goal > 0 ? Math.max(1, Math.floor(W * Math.min(1, native / p.goal))) : 1;
+    return [
+      ["amount", textJson("amount", txt, p.font, p.right - textWidth(txt, p.font), p.y0, color, Z_AMOUNT)],
+      ["fill", rectJson("fill", 0, BAR_Y, fill, BAR_H, KS_GREEN, Z_BAR + 1)],
+    ];
   };
 
   /**
@@ -280,7 +232,7 @@ function main(): void {
     const funded = c.goal > 0 && s.pledged >= c.goal;
     const color = funded ? KS_GREEN : WHITE;
 
-    // What the amount and the bar show in this frame: at rest, the real ones; at the start of an animation, the old.
+    // What the amount and the bar show in this frame: the real ones, or zero at the start of the intro's count-up.
     let shownText = amount.text;
     let shownX = amountX;
     let shownNative = s.pledged;
@@ -289,29 +241,14 @@ function main(): void {
       shownX = amountX + amountW - textWidth(shownText, amount.font);
       shownNative = 0;
       if (intro === "count") {
-        plan = makeCount(c, 0, target, money.prefix, full, amount.font, amountX + amountW, COUNT_MS, now);
+        plan = makeCount(c, target, money.prefix, full, amount.font, amountX + amountW, now);
         later(draw, FRAME_MS);
       }
-    } else if (restText && amount.text !== restText) {
-      // The amount changed: roll the digits that differ, or count across when the length or the font changed.
-      plan =
-        amount.text.length === restText.length && amount.font === restFont
-          ? makeRoll(restText, amount.text, amount.font, amountX, color, target >= restValue, now)
-          : makeCount(c, restValue, target, money.prefix, full, amount.font, amountX + amountW, COUNT_STEP_MS, now);
-      shownText = restText;
-      shownX = amountX + amountW - textWidth(restText, amount.font);
-      later(draw, FRAME_MS);
-    }
-    if (!intro || intro === "count") {
-      restText = amount.text;
-      restFont = amount.font;
-      restValue = target;
     }
 
     const out: Elements = [
       text("amount", shownText, amount.font, shownX, TOP_Y[amount.font], intro ? WHITE : color, Z_AMOUNT),
       text("code", money.code || " ", "tiny", amountX + amountW + 1, TOP_Y.tiny, GRAY, Z_AMOUNT),
-      rect("mask", 0, BAR_Y, W, 16 - BAR_Y, "#00000000", Z_MASK),
     ];
 
     // The bar: pledged against the goal, full past it.
@@ -336,14 +273,14 @@ function main(): void {
     if (settings.showPercent && pct) slots.push("percent");
     const slot = slots[Math.floor(now / ALTERNATE_MS) % slots.length];
     if (slot === "rise") {
-      // "+$1,240 in 1m": the rise over a sliding minute, recounted every second.
-      // Always "in 1m": in the first minute after start the window is shorter and the rise reads low, on purpose.
-      const rise = lastMinute(now);
+      // "+$1,240 in 1h": the rise over the sliding window from the settings, recounted every second. The caption is
+      // the full window even right after start, when the app has seen less and the rise reads low, on purpose.
+      const rise = lastRise(now);
       const d = toDisplay(rise);
       const sign = "+" + money.prefix;
       const tail = money.code ? " " + money.code : "";
       value = sign + (d > 0 && d < 1 ? "<1" : fitCount(d, "small", room - textWidth(sign + tail, "small"), textWidth)) + tail;
-      caption = "in 1m";
+      caption = settings.riseMs >= 3600000 ? "in 1h" : `in ${settings.riseMs / 60000}m`;
     } else if (slot === "percent") {
       value = pct;
       caption = "funded";
@@ -419,18 +356,13 @@ function main(): void {
     const elements: string[] = [];
     let gone: string[] = [];
     if (plan && now < plan.end) {
-      // An animation frame: only what moves. The first one also takes the amount at rest away.
+      // A count-up frame: only what moves.
       for (const [id, json] of planFrame(plan, now)) {
         if (sent[id] !== json) {
           sent[id] = json;
           elements.push(json);
         }
       }
-      if (plan.first && !plan.count && sent["amount"]) {
-        gone = ["amount"];
-        delete sent["amount"];
-      }
-      plan.first = false;
     } else {
       if (plan) plan = null;
       const ids: Record<string, true> = {};
@@ -452,9 +384,11 @@ function main(): void {
       return;
     }
     drawing = true;
-    const cleared = gone.length ? bar.clear(APP, gone) : Promise.resolve("");
-    cleared
-      .then(() => (elements.length ? bar.draw(APP, elements) : ""))
+    // New elements first, then the old ones go: the other way round, the screen would show neither for a moment,
+    // and the amount would blink when an animation starts or ends.
+    const drawn = elements.length ? bar.draw(APP, elements) : Promise.resolve("");
+    drawn
+      .then(() => (gone.length ? bar.clear(APP, gone) : ""))
       .catch(() => {
         // The device state is unknown now: send everything next time.
         sent = {};

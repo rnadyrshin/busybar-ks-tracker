@@ -121,6 +121,38 @@
         }
       ]
     },
+    "rise_min": {
+      "type": "enum",
+      "label": "Rise period",
+      "description": "The rise in the bottom-left corner, e.g. +$1,240 in 1h, counts the pledges over this sliding period. Right after start the app has seen less, so the rise reads low until a full period has passed.",
+      "default": "60",
+      "options": [
+        {
+          "value": "1",
+          "label": "1 minute"
+        },
+        {
+          "value": "5",
+          "label": "5 minutes"
+        },
+        {
+          "value": "10",
+          "label": "10 minutes"
+        },
+        {
+          "value": "15",
+          "label": "15 minutes"
+        },
+        {
+          "value": "30",
+          "label": "30 minutes"
+        },
+        {
+          "value": "60",
+          "label": "60 minutes"
+        }
+      ]
+    },
     "show_backers": {
       "type": "boolean",
       "label": "Show backers",

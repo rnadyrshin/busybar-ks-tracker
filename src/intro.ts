@@ -65,7 +65,7 @@ function balance(lines: string[], font: Font, measure: Measure): string[] {
 }
 
 /** Reading time for a page: a base plus a little per character, so long taglines stay up longer. */
-const pageMs = (lines: string[]) => Math.min(3200, 1100 + 45 * lines.join(" ").length);
+const pageMs = (lines: string[]) => Math.min(2000, 700 + 30 * lines.join(" ").length);
 
 /** Two lines a page; the name in bold when one line holds it, else in the regular font, else in the small one. */
 export function buildPages(title: string, measure: Measure): Page[] {
@@ -86,8 +86,8 @@ export function buildPages(title: string, measure: Measure): Page[] {
   else if (normal.length <= 4) add(normal, "normal", 2);
   else add(smallLines, "small", 2);
   if (tagline) add(wrap(tagline, "small", measure), "small", 2);
-  // A very long title stops after four pages: the numbers matter more.
-  return pages.slice(0, 4);
+  // A very long title stops after three pages: the numbers matter more.
+  return pages.slice(0, 3);
 }
 
 /** Glyph rows of each font, and the text element's y that puts the top of the glyphs on row 0. */

@@ -8,19 +8,23 @@ export type Settings = {
   /** ISO code, or "PROJECT" for the project's own currency. */
   currency: string;
   intervalMs: number;
-  /** Take turns with the last minute's rise in the bottom-left slot. */
+  /** The sliding window the rise in the bottom-left slot is counted over. */
+  riseMs: number;
+  /** Take turns with the rise in the bottom-left slot. */
   showBackers: boolean;
   showPercent: boolean;
 };
 
 const f = fields.fields;
 const CURRENCIES = f.currency.options.map((o) => o.value);
+const RISE_MINUTES = f.rise_min.options.map((o) => o.value);
 
 /** The defaults come straight from appmeta/settings.json, so the two cannot drift apart. */
 export const DEFAULTS: Settings = {
   project: f.project.default,
   currency: f.currency.default,
   intervalMs: f.interval_s.default * 1000,
+  riseMs: Number(f.rise_min.default) * 60000,
   showBackers: f.show_backers.default,
   showPercent: f.show_percent.default,
 };
@@ -40,6 +44,7 @@ export async function loadSettings(): Promise<Settings> {
       project: project || DEFAULTS.project,
       currency,
       intervalMs: intervalS * 1000,
+      riseMs: Number(RISE_MINUTES.find((m) => m === values.rise_min) ?? f.rise_min.default) * 60000,
       showBackers: flag("show_backers", DEFAULTS.showBackers),
       showPercent: flag("show_percent", DEFAULTS.showPercent),
     };

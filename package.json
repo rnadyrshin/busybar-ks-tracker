@@ -1,7 +1,7 @@
 {
   "name": "kickstarter-tracker",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Live Kickstarter funding progress",
   "author": "Ruslan Nadyrshin",
   "type": "module",
